@@ -10,11 +10,11 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// ImageKit initialize
+// ImageKit initialize (HARDCODED - testing)
 const imagekit = new ImageKit({
-  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
-  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
+  publicKey: 'public_Cam/H6qzsPHNMiXi6XxVWOapqBc=',
+  privateKey: 'private_ZVGA+wsSKWA7i0NnXdoVdG5JtJM=',
+  urlEndpoint: 'https://ik.imagekit.io/5ey3dxl6g'
 });
 
 // Auth endpoint
@@ -28,7 +28,7 @@ app.get('/api/imagekit-auth', (req, res) => {
 });
 
 // Server start
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
