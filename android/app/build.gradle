@@ -1,0 +1,67 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.github.ben-manes.versions" version "0.46.0"
+    id "com.google.gms.google-services"
+}
+
+android {
+    namespace = "com.example.bargain"
+    compileSdk 36
+    ndkVersion "27.0.12077973"
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled = true
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId = "com.example.bargain"
+        minSdk = 24
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig = signingConfigs.debug
+        }
+    }
+}
+
+dependencies {
+    // Core desugaring support
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+
+    // Kotlin standard library
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.0.0"
+
+    // Firebase BOM (manages all Firebase versions)
+    implementation platform('com.google.firebase:firebase-bom:33.4.0')
+    implementation 'com.google.firebase:firebase-analytics'
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-appcheck'
+    implementation 'com.google.firebase:firebase-appcheck-playintegrity'
+
+    // Google Play Integrity
+    implementation 'com.google.android.play:integrity:1.4.0'
+
+    // Credentials (for authentication)
+    implementation "androidx.credentials:credentials:1.3.0"
+
+    // Image cropping library
+    implementation 'com.github.yalantis:ucrop:2.2.8'
+}
+
+flutter {
+    source = "../.."
+}

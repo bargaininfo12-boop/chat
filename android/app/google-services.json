@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "841448863795",
+    "firebase_url": "https://bargain-aa76f-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "bargain-aa76f",
+    "storage_bucket": "bargain-aa76f.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:841448863795:android:9b7a1262863746bc2a0b46",
+        "android_client_info": {
+          "package_name": "com.example.bargain"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "841448863795-afpeoufd6moum2k0lh2dtmms0gt1n765.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.bargain",
+            "certificate_hash": "664dff8082b1e55ac38a90974ce7830827b95850"
+          }
+        },
+        {
+          "client_id": "841448863795-2ran3fdtm2m7cuo2r6ile0c7o9gh8bl6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD2SOjOOZq2SNZX-oLitF4ZYYlJIOQEV74"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "841448863795-2ran3fdtm2m7cuo2r6ile0c7o9gh8bl6.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "841448863795-4pde8jcj86ei6q7lnjqpvl9or7pgi6nd.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.bargain"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

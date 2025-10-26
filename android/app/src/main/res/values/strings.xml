@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Bargain</string>
+    <string name="default_web_client_id">your_web_client_id.apps.googleusercontent.com</string>
+</resources>
