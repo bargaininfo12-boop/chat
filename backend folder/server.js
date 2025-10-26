@@ -12,9 +12,9 @@ app.use(bodyParser.json());
 
 // ImageKit initialize
 const imagekit = new ImageKit({
-  publicKey: 'public_Cam/H6qzsPHNMiXi6XxVWOapqBc=',
-  privateKey: 'private_ZVGA+wsSKWA7i0NnXdoVdG5JtJM=',
-  urlEndpoint: 'https://ik.imagekit.io/5ey3dxl6g'
+  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
+  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
 });
 
 // Auth endpoint
