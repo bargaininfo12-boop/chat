@@ -37,25 +37,86 @@ app.get('/api/imagekit-auth', (req, res) => {
 
 // WebSocket Connection
 wss.on('connection', (ws) => {
-  console.log('Client connected');
+  console.log('✅ Client connected');
 
   ws.on('message', (message) => {
-    console.log('Received:', message);
+    try {
+      const data = JSON.parse(message);
+      console.log('📨 Received event:', data.event);
 
-    // Broadcast to all clients
-    wss.clients.forEach((client) => {
-      if (client.readyState === 1) {
-        client.send(message);
+      // Handle ping/pong
+      if (data.event === 'ping') {
+        ws.send(JSON.stringify({ event: 'pong', data: {} }));
+        return;
       }
-    });
+
+      // Handle message.send
+      if (data.event === 'message.send') {
+        const response = {
+          event: 'message.ack',
+          data: {
+            tempId: data.data?.tempId,
+            serverId: 'srv_' + Date.now(),
+            status: 'sent'
+          }
+        };
+        ws.send(JSON.stringify(response));
+
+        // Broadcast new message to all clients
+        const broadcastMsg = {
+          event: 'message.new',
+          data: {
+            ...data.data,
+            serverId: 'srv_' + Date.now(),
+            createdAt: new Date().toISOString()
+          }
+        };
+
+        wss.clients.forEach((client) => {
+          if (client.readyState === 1) {
+            client.send(JSON.stringify(broadcastMsg));
+          }
+        });
+        return;
+      }
+
+      // Handle presence.update
+      if (data.event === 'presence.update') {
+        const presenceMsg = {
+          event: 'presence.update',
+          data: data.data
+        };
+
+        wss.clients.forEach((client) => {
+          if (client.readyState === 1) {
+            client.send(JSON.stringify(presenceMsg));
+          }
+        });
+        return;
+      }
+
+      // Broadcast unknown events
+      wss.clients.forEach((client) => {
+        if (client.readyState === 1) {
+          client.send(message);
+        }
+      });
+    } catch (e) {
+      console.error('❌ Error parsing message:', e.message);
+    }
   });
 
   ws.on('close', () => {
-    console.log('Client disconnected');
+    console.log('❌ Client disconnected');
+  });
+
+  ws.on('error', (error) => {
+    console.error('⚠️ WebSocket error:', error.message);
   });
 });
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
+  console.log(`📡 WebSocket ready at wss://your-domain.com`);
 });
