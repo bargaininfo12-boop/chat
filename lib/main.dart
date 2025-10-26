@@ -168,8 +168,8 @@ Future<void> _initializeServices() async {
   await NetworkManager.instance.initialize();
 
   // === ChatService init (set real endpoints) ===
-  const String WS_ENDPOINT = 'wss://your-ws-endpoint.example/ws';
-  const String SIGNING_ENDPOINT = 'https://your-signing-endpoint.example/sign';
+  const String WS_ENDPOINT = 'wss://chat-q2sm.onrender.com';
+  const String SIGNING_ENDPOINT = 'https://chat-q2sm.onrender.com/api/imagekit-auth';
 
   WsClient? wsClient;
   CdnUploader? cdnUploader;
