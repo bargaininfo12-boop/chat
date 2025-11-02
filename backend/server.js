@@ -1,3 +1,9 @@
+// ============================================
+// 📱 Backend Server - ImageKit + WebSocket
+// ============================================
+
+require('dotenv').config();
+
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const { createServer } = require('http');
@@ -10,79 +16,119 @@ app.use(express.json());
 
 const httpServer = createServer(app);
 
-// WebSocket Server (for Flutter)
+// ✅ WebSocket Server (Flutter ke liye)
 const wss = new WebSocketServer({ server: httpServer });
 
-// ImageKit
+// ============================================
+// ✅ ImageKit Configuration
+// ============================================
+
+console.log('📋 Checking ImageKit Credentials:');
+console.log('  IMAGEKIT_PUBLIC_KEY:', process.env.IMAGEKIT_PUBLIC_KEY ? '✅' : '❌');
+console.log('  IMAGEKIT_PRIVATE_KEY:', process.env.IMAGEKIT_PRIVATE_KEY ? '✅' : '❌');
+console.log('  IMAGEKIT_URL_ENDPOINT:', process.env.IMAGEKIT_URL_ENDPOINT ? '✅' : '❌');
+
 const imagekit = new ImageKit({
   publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
   privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
   urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
 });
 
-// Routes
+// ============================================
+// ✅ REST API Routes
+// ============================================
+
+// Health Check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', message: '✅ Server chalti hai' });
 });
 
+// ImageKit Auth Endpoint
 app.get('/api/imagekit-auth', (req, res) => {
   try {
+    console.log('🔓 ImageKit Auth Request');
+
     const authParams = imagekit.getAuthenticationParameters();
+    if (!authParams) throw new Error('Auth parameters generate nahi ho sake');
 
-    const uniqueFileName = `uploads/${Date.now()}_${Math.floor(Math.random() * 1000)}.jpg`;
+    // ✅ Declare only once
+    const folderPath = 'bargain/chat/uploads';
+    const fileName = `${Date.now()}_${Math.floor(Math.random() * 1000)}.jpg`;
+    const fullKey = `${folderPath}/${fileName}`;
 
-    res.json({
-      uploadUrl: 'https://upload.imagekit.io/api/v1/files/upload',
-      cdnBaseUrl: process.env.IMAGEKIT_URL_ENDPOINT,
-      fields: {
-        key: uniqueFileName,
-        token: authParams.token,
-        signature: authParams.signature,
-        expire: authParams.expire
-      }
-    });
+    const response = {
+      publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
+      token: authParams.token,
+      signature: authParams.signature,
+      expire: authParams.expire,
+      key: fullKey,
+      fileName: fileName,
+      folder: folderPath
+    };
+
+    console.log('📦 Upload key:', fullKey);
+    res.status(200).json(response);
   } catch (error) {
-    res.status(500).json({ error: 'Auth failed' });
+    console.error('❌ Auth Failed:', error.message);
+    res.status(500).json({ error: 'Auth failed', message: error.message });
   }
 });
 
-// WebSocket Connection
+// Debug endpoint
+app.get('/debug/credentials', (req, res) => {
+  res.json({
+    IMAGEKIT_PUBLIC_KEY_SET: !!process.env.IMAGEKIT_PUBLIC_KEY,
+    IMAGEKIT_PRIVATE_KEY_SET: !!process.env.IMAGEKIT_PRIVATE_KEY,
+    IMAGEKIT_URL_ENDPOINT_SET: !!process.env.IMAGEKIT_URL_ENDPOINT,
+    IMAGEKIT_PUBLIC_KEY_LENGTH: process.env.IMAGEKIT_PUBLIC_KEY?.length || 0,
+    IMAGEKIT_PRIVATE_KEY_LENGTH: process.env.IMAGEKIT_PRIVATE_KEY?.length || 0,
+  });
+});
+
+// ============================================
+// ✅ WebSocket Connection Handler
+// ============================================
+
 wss.on('connection', (ws) => {
   console.log('✅ Client connected');
 
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-      console.log('📨 Received event:', data.event);
+      console.log('📨 Event received:', data.event);
 
-      // Handle ping/pong
       if (data.event === 'ping') {
         ws.send(JSON.stringify({ event: 'pong', data: {} }));
         return;
       }
 
-      // Handle message.send
       if (data.event === 'message.send') {
-        const response = {
+        const serverId = 'srv_' + Date.now();
+        console.log('📤 Message sending:', data.data?.tempId);
+
+        const ackResponse = {
           event: 'message.ack',
           data: {
             tempId: data.data?.tempId,
-            serverId: 'srv_' + Date.now(),
+            serverId: serverId,
             status: 'sent'
           }
         };
-        ws.send(JSON.stringify(response));
+        ws.send(JSON.stringify(ackResponse));
+        console.log('✅ ACK sent');
 
-        // Broadcast new message to all clients
         const broadcastMsg = {
           event: 'message.new',
           data: {
             ...data.data,
-            serverId: 'srv_' + Date.now(),
-            createdAt: new Date().toISOString()
+            serverId: serverId,
+            id: serverId,
+            createdAt: new Date().toISOString(),
+            timestamp: Date.now()
           }
         };
 
+        console.log('📢 Broadcasting to', wss.clients.size, 'clients');
         wss.clients.forEach((client) => {
           if (client.readyState === 1) {
             client.send(JSON.stringify(broadcastMsg));
@@ -91,8 +137,9 @@ wss.on('connection', (ws) => {
         return;
       }
 
-      // Handle presence.update
       if (data.event === 'presence.update') {
+        console.log('👤 Presence update:', data.data?.status);
+
         const presenceMsg = {
           event: 'presence.update',
           data: data.data
@@ -106,14 +153,15 @@ wss.on('connection', (ws) => {
         return;
       }
 
-      // Broadcast unknown events
+      console.log('🔹 Unknown event:', data.event);
       wss.clients.forEach((client) => {
         if (client.readyState === 1) {
           client.send(message);
         }
       });
+
     } catch (e) {
-      console.error('❌ Error parsing message:', e.message);
+      console.error('❌ Message parsing error:', e.message);
     }
   });
 
@@ -126,8 +174,39 @@ wss.on('connection', (ws) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
+// ============================================
+// ✅ Server Start
+// ============================================
+
+const PORT = process.env.PORT || 3001;
+
 httpServer.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`📡 WebSocket ready at wss://your-domain.com`);
+  console.log(`
+╔════════════════════════════════════════╗
+║   ✅ Backend Server Started            ║
+╠════════════════════════════════════════╣
+║   Port: ${PORT}                              ║
+║   Health: http://localhost:${PORT}/health   ║
+║   Auth: http://localhost:${PORT}/api/imagekit-auth ║
+║   WebSocket: wss://localhost:${PORT}        ║
+╚════════════════════════════════════════╝
+  `);
+
+  console.log('\n📋 Endpoints:');
+  console.log('  ✅ GET /health');
+  console.log('  ✅ GET /api/imagekit-auth');
+  console.log('  ✅ GET /debug/credentials');
+  console.log('  ✅ WebSocket connection');
+});
+
+// ============================================
+// Error Handler
+// ============================================
+
+app.use((err, req, res, next) => {
+  console.error('❌ Unhandled error:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: err.message
+  });
 });
