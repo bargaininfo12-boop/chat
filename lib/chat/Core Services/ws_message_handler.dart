@@ -5,39 +5,35 @@
 // Expects WsClient from lib/chat/services/ws_client.dart
 
 import 'dart:async';
-import 'package:bargain/chat/services/ws_client.dart';
+
+import 'package:bargain/chat/Core%20Services/ws_client.dart';
 
 typedef JsonMap = Map<String, dynamic>;
 
 class WsMessageHandler {
-  final WsClient wsClient; // strongly typed to the project's WsClient
+  final WsClient wsClient;
   StreamSubscription? _sub;
 
-  // Typed controllers
   final StreamController<JsonMap> _messageNewController = StreamController.broadcast();
   final StreamController<JsonMap> _messageAckController = StreamController.broadcast();
   final StreamController<JsonMap> _presenceController = StreamController.broadcast();
   final StreamController<JsonMap> _typingController = StreamController.broadcast();
   final StreamController<JsonMap> _errorController = StreamController.broadcast();
 
-  // Optional logger
   void Function(String msg)? logger;
 
   WsMessageHandler(this.wsClient, {this.logger});
 
-  // Public streams
   Stream<JsonMap> get messageNew => _messageNewController.stream;
   Stream<JsonMap> get messageAck => _messageAckController.stream;
   Stream<JsonMap> get presence => _presenceController.stream;
   Stream<JsonMap> get typing => _typingController.stream;
   Stream<JsonMap> get errors => _errorController.stream;
 
-  /// Start listening to wsClient events
   void start() {
     _log('WsMessageHandler: start()');
     if (_sub != null) return;
 
-    // wsClient.events must be Stream<Map<String,dynamic>> with shape {event, data}
     _sub = wsClient.events.listen(_onRawEvent, onError: (e, st) {
       _log('WsMessageHandler: ws error: $e');
       _errorController.add({'error': e.toString(), 'stack': st.toString()});
@@ -46,7 +42,6 @@ class WsMessageHandler {
     });
   }
 
-  /// Stop listening & cleanup
   Future<void> stop() async {
     _log('WsMessageHandler: stop()');
     await _sub?.cancel();
@@ -54,8 +49,7 @@ class WsMessageHandler {
   }
 
   void _onRawEvent(dynamic raw) {
-    if (raw == null) return;
-    if (raw is! Map<String, dynamic>) {
+    if (raw == null || raw is! Map<String, dynamic>) {
       _log('WsMessageHandler: unexpected raw event type: ${raw.runtimeType}');
       return;
     }
@@ -92,11 +86,7 @@ class WsMessageHandler {
   }
 
   void _handleMessageNew(Map<String, dynamic>? data) {
-    if (data == null) {
-      _log('WsMessageHandler: message.new with null data');
-      return;
-    }
-    if (!data.containsKey('serverId') || !data.containsKey('conversationId')) {
+    if (data == null || !data.containsKey('serverId') || !data.containsKey('conversationId')) {
       _log('WsMessageHandler: message.new missing serverId/conversationId');
       _errorController.add({'event': 'message.new', 'data': data});
       return;
@@ -119,11 +109,7 @@ class WsMessageHandler {
   }
 
   void _handleMessageAck(Map<String, dynamic>? data) {
-    if (data == null) {
-      _log('WsMessageHandler: message.ack null data');
-      return;
-    }
-    if (!data.containsKey('tempId')) {
+    if (data == null || !data.containsKey('tempId')) {
       _log('WsMessageHandler: message.ack missing tempId');
       _errorController.add({'event': 'message.ack', 'data': data});
       return;
@@ -173,7 +159,6 @@ class WsMessageHandler {
     _errorController.add({'event': 'server.error', 'data': data});
   }
 
-  /// Helper to add outgoing events (requires WsClient.sendEvent)
   Future<void> sendEvent(String event, Map<String, dynamic> data) async {
     try {
       await wsClient.sendEvent(event, data);
@@ -188,7 +173,6 @@ class WsMessageHandler {
     }
   }
 
-  /// Dispose all controllers & subscription
   Future<void> dispose() async {
     await stop();
     await _messageNewController.close();

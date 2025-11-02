@@ -17,7 +17,10 @@ class WsEvent {
     );
   }
 
-  Map<String, dynamic> toMap() => {'event': event, 'data': data ?? {}};
+  Map<String, dynamic> toMap() => {
+    'event': event,
+    'data': data ?? {},
+  };
 
   @override
   String toString() => 'WsEvent(event: $event, data: ${data?.keys.toList()})';

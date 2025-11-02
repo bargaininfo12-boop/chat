@@ -4,7 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:bargain/Database/Firebase_all/firebase_auth.dart';
-import 'package:bargain/chat/services/chat_service.dart';
+import 'package:bargain/chat/Core%20Services/chat_service.dart';
 import 'package:bargain/chat/services/userpresence.dart';
 import 'package:bargain/chat/utils/network_manager.dart';
 import 'package:bargain/chat/utils/custom_cache_manager.dart';

@@ -1,3 +1,10 @@
+// DatabaseHelper (v5) - Updated: 2025-10-26T15:22 IST
+// - Adds tempId/serverId/thumbUrl/uploadProgress for upload flow
+// - v5 migration + indexes + helper methods (getMessageByTempId, linkTempToServer, etc.)
+// - Validation: either messageId OR tempId required
+//
+// NOTE: Keep single source of truth for DB version: _databaseVersion = 5
+
 import 'dart:async';
 import 'dart:io';
 import 'package:bargain/A_User_Data/user_model.dart';
@@ -9,17 +16,12 @@ import 'package:sqflite/sqflite.dart';
 
 final _log = Logger('DatabaseHelper');
 
-/// ✅ DatabaseHelper (v3.1)
-/// Changes vs v3:
-/// - Timestamp consistency via TimestampUtils (clearOldMessages)
-/// - Stronger validation: types + safe coercion for `timestamp`
-/// - Optional localPath sanity check on insert/update
+/// ✅ DatabaseHelper (v5)
 class DatabaseHelper {
   // ========= DB Config =========
   static final _databaseName = "bargain.db";
-  static final _databaseVersion =4 ; // keep as-is for your app
+  static final _databaseVersion = 5; // bumped to v5
   static final columnLanguage = 'language';
-
 
   // ========= Tables =========
   static final tableMessages = 'messages';
@@ -27,12 +29,15 @@ class DatabaseHelper {
 
   // ========= Columns: messages =========
   static final columnMessageId = 'messageId';
+  static final columnTempId = 'tempId';           // NEW v5
+  static final columnServerId = 'serverId';       // NEW v5
   static final columnConversationId = 'conversationId';
   static final columnSenderId = 'senderId';
   static final columnReceiverId = 'receiverId';
   static final columnMessage = 'message';
   static final columnMessageType = 'message_type';
   static final columnMediaUrl = 'media_url';
+  static final columnThumbUrl = 'thumbUrl';       // NEW v5
   static final columnLocalPath = 'local_path';
   static final columnTimestamp = 'timestamp';
   static final columnStatus = 'Status';          // legacy casing kept
@@ -42,6 +47,8 @@ class DatabaseHelper {
   // download progress
   static final columnDownloadProgress = 'download_progress';
   static final columnDownloadStatus = 'download_status';
+  // upload progress
+  static final columnUploadProgress = 'uploadProgress'; // NEW v5
 
   // ========= Columns: users =========
   static final columnUid = 'uid';
@@ -101,12 +108,15 @@ class DatabaseHelper {
       await db.execute('''
       CREATE TABLE $tableMessages (
         $columnMessageId       TEXT PRIMARY KEY,
+        $columnTempId          TEXT,                    -- NEW v5
+        $columnServerId        TEXT,                    -- NEW v5
         $columnConversationId  TEXT NOT NULL,
         $columnSenderId        TEXT NOT NULL,
         $columnReceiverId      TEXT NOT NULL,
         $columnMessage         TEXT,
         $columnMessageType     TEXT NOT NULL DEFAULT 'text',
         $columnMediaUrl        TEXT,
+        $columnThumbUrl        TEXT,                    -- NEW v5
         $columnLocalPath       TEXT,
         $columnTimestamp       INTEGER NOT NULL,
         $columnStatus          INTEGER NOT NULL DEFAULT 1,
@@ -114,6 +124,7 @@ class DatabaseHelper {
         $columnFilesize        TEXT,
         $columnMetadata        TEXT,
         $columnDownloadProgress REAL NOT NULL DEFAULT 0.0,
+        $columnUploadProgress   REAL NOT NULL DEFAULT 0.0, -- NEW v5
         $columnDownloadStatus   TEXT NOT NULL DEFAULT 'idle'
       )
     ''');
@@ -147,7 +158,6 @@ class DatabaseHelper {
     }
   }
 
-
   // ========= Upgrade =========
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     try {
@@ -176,6 +186,15 @@ class DatabaseHelper {
         _log.info('✅ v4 migration complete — added soft delete columns to users');
       }
 
+      // ✅ v5 migration — tempId, serverId, thumbUrl, uploadProgress
+      if (oldVersion < 5) {
+        await _addColumnSafely(db, tableMessages, columnTempId, 'TEXT');
+        await _addColumnSafely(db, tableMessages, columnServerId, 'TEXT');
+        await _addColumnSafely(db, tableMessages, columnThumbUrl, 'TEXT');
+        await _addColumnSafely(db, tableMessages, columnUploadProgress, 'REAL NOT NULL DEFAULT 0.0');
+        _log.info('✅ v5 migration complete - Added chat system columns');
+      }
+
       await _createIndexes(db);
       _log.fine('✅ Database upgraded successfully from v$oldVersion → v$newVersion');
     } catch (e) {
@@ -183,8 +202,6 @@ class DatabaseHelper {
       rethrow;
     }
   }
-
-
 
   Future<void> _addColumnSafely(Database db, String table, String column, String type) async {
     try {
@@ -203,6 +220,10 @@ class DatabaseHelper {
       await db.execute('CREATE INDEX IF NOT EXISTS idx_message_status ON $tableMessages ($columnStatus)');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_sender_receiver ON $tableMessages ($columnSenderId, $columnReceiverId)');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_download_status ON $tableMessages ($columnDownloadStatus)');
+      // new v5 indexes
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_tempId ON $tableMessages ($columnTempId)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_serverId ON $tableMessages ($columnServerId)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_messageType ON $tableMessages ($columnMessageType)');
     } catch (e) {
       _log.warning('Index creation failed: $e');
     }
@@ -301,8 +322,6 @@ class DatabaseHelper {
     );
   }
 
-
-
   Future<String?> getMediaPath(String messageId) async {
     if (messageId.isEmpty) return null;
     final db = await database;
@@ -396,6 +415,80 @@ class DatabaseHelper {
     return rows.isEmpty ? null : rows.first[columnDownloadStatus] as String?;
   }
 
+  // ========= Upload progress / server linking (v5 helpers) =========
+
+  /// Get message by tempId (for local tracking)
+  Future<Map<String, dynamic>?> getMessageByTempId(String tempId) async {
+    if (tempId.isEmpty) return null;
+    final db = await database;
+    final rows = await db.query(
+      tableMessages,
+      where: '$columnTempId = ?',
+      whereArgs: [tempId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// Get message by serverId (for server tracking)
+  Future<Map<String, dynamic>?> getMessageByServerId(String serverId) async {
+    if (serverId.isEmpty) return null;
+    final db = await database;
+    final rows = await db.query(
+      tableMessages,
+      where: '$columnServerId = ?',
+      whereArgs: [serverId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// Link tempId to serverId (update after server ACK)
+  Future<int> linkTempToServer(String tempId, String serverId) async {
+    if (tempId.isEmpty || serverId.isEmpty) return 0;
+    final db = await database;
+    return await db.update(
+      tableMessages,
+      {columnServerId: serverId},
+      where: '$columnTempId = ?',
+      whereArgs: [tempId],
+    );
+  }
+
+  /// Update upload progress (accepts messageId OR tempId)
+  Future<int> updateUploadProgress(String messageIdOrTempId, double progress) async {
+    if (messageIdOrTempId.isEmpty) return 0;
+    final db = await database;
+    final p = (progress.clamp(0.0, 100.0) as num).toDouble();
+    return await db.update(
+      tableMessages,
+      {columnUploadProgress: p},
+      where: '$columnMessageId = ? OR $columnTempId = ?',
+      whereArgs: [messageIdOrTempId, messageIdOrTempId],
+    );
+  }
+
+  /// Update after successful upload
+  Future<int> updateAfterUpload({
+    required String tempId,
+    String? cdnUrl,
+    String? thumbUrl,
+    required double uploadProgress,
+  }) async {
+    if (tempId.isEmpty) return 0;
+    final db = await database;
+    final p = (uploadProgress.clamp(0.0, 100.0) as num).toDouble();
+    final data = <String, dynamic>{ columnUploadProgress: p };
+    if (cdnUrl != null) data[columnMediaUrl] = cdnUrl;
+    if (thumbUrl != null) data[columnThumbUrl] = thumbUrl;
+    return await db.update(
+      tableMessages,
+      data,
+      where: '$columnTempId = ?',
+      whereArgs: [tempId],
+    );
+  }
+
   // ========= File utilities =========
   Future<bool> checkFileExists(String filePath) async {
     if (filePath.isEmpty) return false;
@@ -444,7 +537,6 @@ class DatabaseHelper {
     if (messageIds.isEmpty) return;
     _log.info("ℹ️ markMessagesAsRead skipped (pointer model active)");
   }
-
 
   Future<void> insertMessagesBatch(List<Map<String, dynamic>> messages) async {
     if (messages.isEmpty) return;
@@ -508,7 +600,6 @@ class DatabaseHelper {
     });
   }
 
-
   /// ✅ Clears all local tables (users + messages)
   /// Called during logout to wipe sensitive data
   Future<void> clearLocalCache() async {
@@ -523,7 +614,6 @@ class DatabaseHelper {
       _log.severe('❌ Error clearing local cache: $e');
     }
   }
-
 
   Future<void> clearOldMessages({int days = 30}) async {
     final db = await database;
@@ -541,13 +631,23 @@ class DatabaseHelper {
 
   // ========= Validation =========
   void _coerceAndValidateMessageData(Map<String, dynamic> map) {
-    final req = [columnMessageId, columnConversationId, columnSenderId, columnReceiverId, columnTimestamp];
+    // ✅ Either messageId OR tempId required
+    final messageId = map[columnMessageId];
+    final tempId = map[columnTempId];
+
+    if ((messageId == null || (messageId is String && messageId.isEmpty)) &&
+        (tempId == null || (tempId is String && tempId.isEmpty))) {
+      throw ArgumentError("Either $columnMessageId or $columnTempId must be provided");
+    }
+
+    final req = [columnConversationId, columnSenderId, columnReceiverId, columnTimestamp];
     for (final f in req) {
       final v = map[f];
       if (v == null || (v is String && v.isEmpty)) {
         throw ArgumentError("Required field $f cannot be empty");
       }
     }
+
     // ensure timestamp is int (ms)
     final ts = map[columnTimestamp];
     if (ts is! int) {
@@ -582,7 +682,6 @@ class DatabaseHelper {
     };
   }
 
-
   Future<void> deleteDatabaseFile() async {
     try {
       final dir = await getApplicationDocumentsDirectory();
@@ -597,6 +696,4 @@ class DatabaseHelper {
       _log.severe('❌ Error deleting database file: $e');
     }
   }
-
-
 }

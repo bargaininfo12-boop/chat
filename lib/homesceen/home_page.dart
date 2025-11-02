@@ -1,14 +1,15 @@
-import 'package:bargain/account_setting/setting_page.dart';
-import 'package:bargain/chat/screens/chat_screen/chat_list_screen.dart';
-import 'package:bargain/productadd/add_product/Upload%20Data/upload_bottom_sheet.dart';
-import 'package:bargain/productadd/grid_layout/custom_app_bar.dart';
-import 'package:bargain/productadd/grid_layout/image_grid.dart';
-import 'package:bargain/app_theme/app_theme.dart';
-import 'package:bargain/Services/user_service.dart';
-import 'package:bargain/Database/Firebase_all/firebase_auth.dart';
-import 'package:bargain/app_theme/section_app_bar.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import 'package:bargain/app_theme/app_theme.dart';
+import 'package:bargain/Database/Firebase_all/firebase_auth.dart';
+import 'package:bargain/services/user_service.dart';
+import 'package:bargain/productadd/grid_layout/image_grid.dart';
+import 'package:bargain/productadd/grid_layout/custom_app_bar.dart';
+import 'package:bargain/productadd/add_product/Upload Data/upload_bottom_sheet.dart';
+import 'package:bargain/chat/UX Layer/chat_list_screen.dart';
+import 'package:bargain/account_setting/setting_page.dart';
+import 'package:bargain/app_theme/section_app_bar.dart';
 import '../productadd/search_page_Activity/widgets/bottom_navbar.dart';
 
 class HomePage extends StatefulWidget {
@@ -33,19 +34,11 @@ class _HomePageState extends State<HomePage> {
     _loadUserData();
   }
 
-  // ============================================================
-  // 🔹 Load cached user data + refresh Firestore
-  // ============================================================
   Future<void> _loadUserData() async {
     try {
       setState(() => _isRefreshing = true);
+
       final firebaseUser = widget.user;
-      final cachedUser = _userService.currentUser;
-
-      if (cachedUser != null) {
-        _userData = cachedUser.toJson();
-      }
-
       await _userService.initializeUser(firebaseUser);
       await _authService.saveUserFCMToken();
 
@@ -59,9 +52,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // ============================================================
-  // 🔹 Navigation logic
-  // ============================================================
   void _onItemTapped(int index) {
     if (index == 1) {
       _showUploadBottomSheet();
@@ -86,44 +76,33 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // ============================================================
-  // 🔹 Handle Android Back Button
-  // ============================================================
   Future<bool> _onWillPop() async {
     if (_selectedIndex != 0) {
-      setState(() => _selectedIndex = 0); // back to home
+      setState(() => _selectedIndex = 0);
       return false;
     }
-    return true; // allow app to close
+    return true;
   }
 
-  // ============================================================
-  // 🧩 Build each Tab
-  // ============================================================
   Widget _buildBody() {
     final theme = Theme.of(context);
+    final currentUserId = _userService.currentUser?.uid ?? widget.user.uid;
 
     switch (_selectedIndex) {
       case 0:
         return RefreshIndicator(
           onRefresh: _loadUserData,
-          color: AppTheme.primaryColor(theme), // ✅ FIXED
-          backgroundColor: AppTheme.surfaceColor(theme), // ✅ FIXED
+          color: AppTheme.primaryColor(theme),
+          backgroundColor: AppTheme.surfaceColor(theme),
           child: ImageGrid(user: widget.user),
         );
-
       case 2:
-        return ChatListScreen(
-          onBackToHome: () => setState(() => _selectedIndex = 0),
-        );
-
-
+        return ChatListScreen(currentUserId: currentUserId);
       case 3:
         return SettingPage(
           user: widget.user,
           onBack: () => setState(() => _selectedIndex = 0),
         );
-
       default:
         return const SizedBox.shrink();
     }
@@ -147,9 +126,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // ============================================================
-  // 🎨 Build UI
-  // ============================================================
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -170,8 +146,7 @@ class _HomePageState extends State<HomePage> {
                 alignment: Alignment.topCenter,
                 child: Container(
                   margin: const EdgeInsets.only(top: 8),
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: AppTheme.primaryColor(theme).withOpacity(0.9),
                     borderRadius: BorderRadius.circular(20),

@@ -1,38 +1,18 @@
-// lib/homesceen/carousel_screen.dart
-// v2.3-carousel_screen · 2025-10-26T03:30 IST
-// Updated: defensive wiring for ChatScreen from CarouselScreen.
-// - Resolves ChatService & MessageRepository safely
-// - Prefer existing wsMessageHandler if exposed by ChatService
-// - Construct WsMessageHandler from ChatService.wsClient when needed
-// - Construct WsAckHandler(msgHandler, localDb)
-// - Start/stop handlers; retry UI on failure
+import 'package:bargain/Services/user_service.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:logger/logger.dart';
 
-import 'dart:io';
-
-import 'package:bargain/Database/Firebase_all/app_auth_provider.dart';
-import 'package:bargain/Database/Firebase_all/firebase_auth.dart';
 import 'package:bargain/app_theme/app_theme.dart';
 import 'package:bargain/app_theme/section_app_bar.dart';
-import 'package:bargain/chat/services/chat_service.dart';
-import 'package:bargain/chat/repository/message_repository.dart';
-import 'package:bargain/chat/screens/chat_screen/chat_screen.dart';
+import 'package:bargain/chat/UX Layer/chat_screen.dart';
 import 'package:bargain/chat/utils/custom_cache_manager.dart';
 import 'package:bargain/productadd/grid_layout/image_model.dart';
 import 'package:bargain/productadd/grid_layout/media_carousel.dart';
 import 'package:bargain/productadd/grid_layout/image_like_card.dart';
 import 'package:bargain/homesceen/seller_profile_screen.dart';
-
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:logger/logger.dart';
-import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-// Chat WS handlers (defensive usage)
-import 'package:bargain/chat/services/ws_message_handler.dart';
-import 'package:bargain/chat/services/ws_ack_handler.dart';
-import 'package:bargain/chat/services/chat_database_helper.dart';
 
 final _logger = Logger();
 
@@ -55,7 +35,6 @@ class CarouselScreen extends StatefulWidget {
 class _CarouselScreenState extends State<CarouselScreen>
     with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   static const String _guideKey = 'carousel_screen_guide_shown';
-  final FirebaseAuthService _authService = FirebaseAuthService.instance;
 
   Map<String, dynamic>? _userData;
   bool _isLiked = false;
@@ -71,11 +50,11 @@ class _CarouselScreenState extends State<CarouselScreen>
   void initState() {
     super.initState();
     _initAnimations();
-    _fetchUserDetails();
+    _fetchSellerDetails();
     _scheduleGuide();
 
-    final auth = context.read<AppAuthProvider>();
-    _isLiked = widget.productDetails.likedBy.contains(auth.currentUserId);
+    final currentUser = UserService().currentUser;
+    _isLiked = widget.productDetails.likedBy.contains(currentUser?.uid);
     _likeCount = widget.productDetails.likeCount;
   }
 
@@ -98,20 +77,22 @@ class _CarouselScreenState extends State<CarouselScreen>
     }
   }
 
-  Future<void> _fetchUserDetails() async {
+  Future<void> _fetchSellerDetails() async {
+    final sellerId = widget.productDetails.userId;
+    final cacheKey = 'seller_$sellerId';
+
     try {
-      final sellerId = widget.productDetails.userId;
-      final cached = await CustomCacheManager.loadJsonCache('seller_$sellerId', expiry: const Duration(hours: 24));
+      final cached = await CustomCacheManager.loadJsonCache(cacheKey, expiry: const Duration(hours: 24));
       if (cached != null && cached.isNotEmpty) {
         _userData = Map<String, dynamic>.from(cached.first);
         if (mounted) setState(() {});
       }
 
-      final data = await _authService.getUserData(sellerId);
-      if (data != null) {
-        _userData = data;
+      final sellerProfile = await UserService().getUserById(sellerId);
+      if (sellerProfile != null) {
+        _userData = sellerProfile.toJson();
         if (mounted) setState(() {});
-        await CustomCacheManager.saveJsonCache('seller_$sellerId', data);
+        await CustomCacheManager.saveJsonCache(cacheKey, _userData!);
       }
     } catch (e) {
       _logger.e("User fetch error: $e");
@@ -143,11 +124,48 @@ View this product on Bargain App!
     HapticFeedback.lightImpact();
   }
 
+  void _navigateToChat() {
+    final userId = UserService().currentUser?.uid;
+    if (userId == null) {
+      _showSnackBar("User not identified", isError: true);
+      return;
+    }
+
+    final peerId = widget.productDetails.userId;
+    final conversationId = _deriveConversationId(userId, peerId);
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          conversationId: conversationId,
+          receiverId: peerId,
+          receiverName: _userData?['name'] ?? 'Seller',
+        ),
+      ),
+    );
+  }
+
+
+  String _deriveConversationId(String a, String b) {
+    return (a.compareTo(b) <= 0) ? '$a:$b' : '$b:$a';
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    final theme = Theme.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppTheme.errorColor(theme) : AppTheme.successColor(theme),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final theme = Theme.of(context);
-    final userId = context.read<AppAuthProvider>().currentUserId;
+    final userId = UserService().currentUser?.uid;
     final isOwner = userId == widget.productDetails.userId;
 
     return Scaffold(
@@ -165,7 +183,6 @@ View this product on Bargain App!
           ),
         ],
       ),
-
       floatingActionButton: isOwner
           ? null
           : FadeTransition(
@@ -181,7 +198,6 @@ View this product on Bargain App!
           ),
         ),
       ),
-
       body: AnimatedBuilder(
         animation: _animationController,
         builder: (context, _) => ListView(
@@ -239,20 +255,9 @@ View this product on Bargain App!
               ? NetworkImage(photo)
               : const AssetImage('assets/user.png') as ImageProvider,
         ),
-        title: Text(
-          name,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: AppTheme.textPrimary(theme),
-          ),
-        ),
-        subtitle: Text(
-          "Seller",
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: AppTheme.textSecondary(theme),
-          ),
-        ),
-        trailing: Icon(Icons.arrow_forward_ios_rounded, size: 16, color: AppTheme.textSecondary(theme)),
+        title: Text(name, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+        subtitle: Text("Seller", style: theme.textTheme.bodySmall),
+        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
@@ -282,7 +287,10 @@ View this product on Bargain App!
                 fontWeight: FontWeight.bold,
               )),
           const SizedBox(height: 4),
-          Text(p.category, style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.textSecondary(theme))),
+          Text(p.category,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppTheme.textSecondary(theme),
+              )),
           const SizedBox(height: 12),
           Text("₹${p.price ?? 'N/A'}",
               style: theme.textTheme.titleLarge?.copyWith(
@@ -328,7 +336,10 @@ View this product on Bargain App!
                       color: AppTheme.textSecondary(theme),
                     )),
                 Expanded(
-                  child: Text("${e.value}", style: theme.textTheme.bodyMedium?.copyWith(color: AppTheme.textPrimary(theme))),
+                  child: Text("${e.value}",
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: AppTheme.textPrimary(theme),
+                      )),
                 ),
               ],
             ),
@@ -344,7 +355,10 @@ View this product on Bargain App!
                 )),
             const SizedBox(height: 8),
             Container(
-              decoration: BoxDecoration(color: AppTheme.surfaceContainerLow(theme), borderRadius: AppTheme.smallRadius),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceContainerLow(theme),
+                borderRadius: AppTheme.smallRadius,
+              ),
               padding: const EdgeInsets.all(12),
               child: Text(
                 description,
@@ -361,247 +375,10 @@ View this product on Bargain App!
     );
   }
 
-  void _navigateToChat() {
-    final userId = context.read<AppAuthProvider>().currentUserId;
-    if (userId == null) {
-      _showSnackBar("User not identified", isError: true);
-      return;
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ChatScreenWrapper(
-          currentUserId: userId,
-          peerId: widget.productDetails.userId,
-          peerName: _userData?['name'] ?? 'Seller',
-          peerPhoto: _userData?['photoURL'],
-        ),
-      ),
-    );
-  }
-
-  void _showSnackBar(String message, {bool isError = false}) {
-    final theme = Theme.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? AppTheme.errorColor(theme) : AppTheme.successColor(theme),
-      ),
-    );
-  }
-
   @override
   void dispose() {
     _animationController.dispose();
     _fabAnimationController.dispose();
     super.dispose();
-  }
-}
-
-/// ChatScreenWrapper
-/// - Resolves ChatService & MessageRepository safely
-/// - Constructs WsMessageHandler & WsAckHandler and starts them
-/// - When ready, builds ChatScreen with required args
-class ChatScreenWrapper extends StatefulWidget {
-  final String currentUserId;
-  final String peerId;
-  final String peerName;
-  final String? peerPhoto;
-
-  const ChatScreenWrapper({
-    super.key,
-    required this.currentUserId,
-    required this.peerId,
-    required this.peerName,
-    this.peerPhoto,
-  });
-
-  @override
-  State<ChatScreenWrapper> createState() => _ChatScreenWrapperState();
-}
-
-class _ChatScreenWrapperState extends State<ChatScreenWrapper> {
-  bool _loading = true;
-  String? _error;
-  ChatService? _chatService;
-  MessageRepository? _messageRepo;
-  WsMessageHandler? _wsMessageHandler;
-  WsAckHandler? _wsAckHandler;
-  final ChatDatabaseHelper _localDb = ChatDatabaseHelper();
-
-  @override
-  void initState() {
-    super.initState();
-    _wireUp();
-  }
-
-  Future<void> _wireUp() async {
-    if (!mounted) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      // Resolve singletons defensively
-      try {
-        _chatService = ChatService.instance;
-      } catch (e) {
-        _chatService = null;
-      }
-      try {
-        _messageRepo = MessageRepository.instance;
-      } catch (e) {
-        _messageRepo = null;
-      }
-
-      if (_chatService == null || _messageRepo == null) {
-        setState(() {
-          _error = 'Chat service unavailable. Try restarting the app.';
-          _loading = false;
-        });
-        return;
-      }
-
-      final convId = _deriveConversationId(widget.currentUserId, widget.peerId);
-
-      // 1) Prefer an already-created message handler exposed by ChatService
-      WsMessageHandler? msgHandler;
-      try {
-        final dynamic csDyn = _chatService!;
-        if (csDyn.wsMessageHandler != null) {
-          msgHandler = csDyn.wsMessageHandler as WsMessageHandler;
-        }
-      } catch (_) {}
-
-      // 2) If not exposed, try to build from wsClient inside ChatService
-      if (msgHandler == null) {
-        try {
-          final dynamic csDyn = _chatService!;
-          final wsClient = csDyn.wsClient;
-          if (wsClient != null) {
-            msgHandler = WsMessageHandler(wsClient, logger: (m) => _logger.d('[WS] $m'));
-          }
-        } catch (_) {}
-      }
-
-      // 3) Fallback: try a parameterized constructor that accepts conversationId (some variants)
-      if (msgHandler == null) {
-        try {
-          msgHandler = WsMessageHandler(_chatService! as dynamic, logger: (m) => _logger.d('[WS] $m'));
-        } catch (_) {}
-      }
-
-      if (msgHandler == null) {
-        setState(() {
-          _error = 'Could not create WS message handler';
-          _loading = false;
-        });
-        return;
-      }
-
-      // Ack handler expects (wsMessageHandler, localDb)
-      WsAckHandler ackHandler;
-      try {
-        ackHandler = WsAckHandler(msgHandler, _localDb);
-      } catch (e) {
-        _logger.e('WsAckHandler construction failed: $e');
-        setState(() {
-          _error = 'Could not create WS ack handler';
-          _loading = false;
-        });
-        return;
-      }
-
-      // Start handlers (defensive)
-      try {
-        msgHandler.start();
-      } catch (e) {
-        _logger.w('WsMessageHandler.start failed: $e');
-      }
-      try {
-        ackHandler.start();
-      } catch (e) {
-        _logger.w('WsAckHandler.start failed: $e');
-      }
-
-      _wsMessageHandler = msgHandler;
-      _wsAckHandler = ackHandler;
-
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = null;
-        });
-      }
-    } catch (e, st) {
-      _logger.e('ChatScreenWrapper wiring error: $e\n$st');
-      if (mounted) {
-        setState(() {
-          _error = 'Internal error while preparing chat';
-          _loading = false;
-        });
-      }
-    }
-  }
-
-  String _deriveConversationId(String a, String b) {
-    return (a.compareTo(b) <= 0) ? '$a:$b' : '$b:$a';
-  }
-
-  @override
-  void dispose() {
-    try {
-      _wsMessageHandler?.stop();
-    } catch (_) {}
-    try {
-      _wsAckHandler?.stop();
-    } catch (_) {}
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    if (_loading) {
-      return Scaffold(
-        appBar: SectionAppBar(title: widget.peerName, onBack: () => Navigator.of(context).pop()),
-        body: Center(child: CircularProgressIndicator(color: AppTheme.primaryAccent(theme))),
-      );
-    }
-
-    if (_error != null) {
-      return Scaffold(
-        appBar: SectionAppBar(title: widget.peerName, onBack: () => Navigator.of(context).pop()),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(_error!, textAlign: TextAlign.center, style: theme.textTheme.bodyMedium),
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: _wireUp,
-                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryAccent(theme)),
-                  child: const Text('Retry'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    // Ready -> show ChatScreen with resolved handlers & repos
-    return ChatScreen(
-      conversationId: _deriveConversationId(widget.currentUserId, widget.peerId),
-      currentUserId: widget.currentUserId,
-      chatService: _chatService!,
-      messageRepository: _messageRepo!,
-      wsMessageHandler: _wsMessageHandler!,
-      wsAckHandler: _wsAckHandler!,
-    );
   }
 }

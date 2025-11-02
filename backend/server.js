@@ -1,4 +1,3 @@
-// backend/server.js
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const { createServer } = require('http');
@@ -29,7 +28,19 @@ app.get('/health', (req, res) => {
 app.get('/api/imagekit-auth', (req, res) => {
   try {
     const authParams = imagekit.getAuthenticationParameters();
-    res.json(authParams);
+
+    const uniqueFileName = `uploads/${Date.now()}_${Math.floor(Math.random() * 1000)}.jpg`;
+
+    res.json({
+      uploadUrl: 'https://upload.imagekit.io/api/v1/files/upload',
+      cdnBaseUrl: process.env.IMAGEKIT_URL_ENDPOINT,
+      fields: {
+        key: uniqueFileName,
+        token: authParams.token,
+        signature: authParams.signature,
+        expire: authParams.expire
+      }
+    });
   } catch (error) {
     res.status(500).json({ error: 'Auth failed' });
   }

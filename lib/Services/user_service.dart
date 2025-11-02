@@ -1,6 +1,3 @@
-// File: lib/services/user_service.dart
-// v4.3 — Unified Logout + Clean Architecture + UTC-safe Deletion Scheduling
-
 import 'package:bargain/A_User_Data/user_model.dart';
 import 'package:bargain/Database/database_helper.dart';
 import 'package:bargain/Database/Firebase_all/firebase_auth.dart';
@@ -16,7 +13,6 @@ enum UserProfileStatus {
 }
 
 class UserService {
-  // Singleton
   static final UserService _instance = UserService._internal();
   factory UserService() => _instance;
   UserService._internal();
@@ -30,28 +26,13 @@ class UserService {
   UserModel? get currentUser => _currentUser;
 
   // ============================================================
-  // 🔹 Initialize user after login (includes delete-cancel logic)
+  // 🔄 Initialize user after login (Firestore → SQLite → Cache)
   // ============================================================
   Future<UserProfileStatus> initializeUser(User firebaseUser) async {
     try {
       debugPrint('🔄 Initializing user: ${firebaseUser.uid}');
 
-      // 1️⃣ Try cache first
-      final cached =
-      await CustomCacheManager.loadJsonCache('user_${firebaseUser.uid}');
-      if (cached != null && cached.isNotEmpty) {
-        _currentUser = UserModel.fromJson(cached.first);
-        debugPrint('🧠 Loaded from cache: ${_currentUser?.name}');
-      }
-
-      // 2️⃣ Try local SQLite
-      final localUser = await _databaseHelper.getUser(firebaseUser.uid);
-      if (localUser != null) {
-        _currentUser = localUser;
-        debugPrint('💾 Loaded from SQLite: ${_currentUser?.name}');
-      }
-
-      // 3️⃣ Fetch Firestore document
+      // 1️⃣ Firestore first
       final docRef = _firestore.collection('users').doc(firebaseUser.uid);
       final userDoc = await docRef.get();
 
@@ -71,15 +52,14 @@ class UserService {
         );
         await docRef.set(newUser.toFirestoreMap());
         await _databaseHelper.insertUser(newUser);
-        await CustomCacheManager.saveJsonCache(
-            'user_${firebaseUser.uid}', newUser.toJson());
+        await CustomCacheManager.saveJsonCache('user_${firebaseUser.uid}', newUser.toJson());
         _currentUser = newUser;
         return UserProfileStatus.incomplete;
       }
 
       final data = userDoc.data() as Map<String, dynamic>;
 
-      // 4️⃣ Handle soft deletion cancellation or expired state
+      // 2️⃣ Handle soft deletion
       if (data['deletionPending'] == true && data['deletionScheduledFor'] != null) {
         final scheduled = DateTime.tryParse(data['deletionScheduledFor']);
         if (scheduled != null && DateTime.now().isBefore(scheduled)) {
@@ -91,26 +71,56 @@ class UserService {
             'deletedAt': FieldValue.delete(),
             'status': 'active',
           });
-
         } else if (scheduled != null && DateTime.now().isAfter(scheduled)) {
           debugPrint('🚫 Account past deletion deadline');
           throw Exception("Account permanently deleted");
         }
       }
 
-      // 5️⃣ Merge Firestore → Local
-      final firestoreUser =
-      UserModel.fromJson({...data, 'uid': firebaseUser.uid});
-      await _databaseHelper.insertUser(firestoreUser);
-      await CustomCacheManager.saveJsonCache(
-          'user_${firebaseUser.uid}', firestoreUser.toJson());
-
+      // 3️⃣ Sync Firestore → SQLite + Cache
+      final firestoreUser = UserModel.fromJson({...data, 'uid': firebaseUser.uid});
       _currentUser = firestoreUser;
+
+      await _databaseHelper.insertUser(firestoreUser);
+      await CustomCacheManager.saveJsonCache('user_${firebaseUser.uid}', firestoreUser.toJson());
+
       debugPrint('✅ Profile loaded: ${_currentUser?.name}');
       return _getProfileStatus(firestoreUser);
     } catch (e) {
       debugPrint('❌ initializeUser error: $e');
       return UserProfileStatus.incomplete;
+    }
+  }
+
+  // ============================================================
+  // 🔍 Fetch any user by UID (cache → SQLite → Firestore)
+  // ============================================================
+  Future<UserModel?> getUserById(String uid) async {
+    try {
+      // 1️⃣ Try cache
+      final cached = await CustomCacheManager.loadJsonCache('user_$uid');
+      if (cached != null && cached.isNotEmpty) {
+        return UserModel.fromJson(cached.first);
+      }
+
+      // 2️⃣ Try SQLite
+      final local = await _databaseHelper.getUser(uid);
+      if (local != null) return local;
+
+      // 3️⃣ Firestore
+      final doc = await _firestore.collection('users').doc(uid).get();
+      if (!doc.exists || doc.data() == null) return null;
+
+      final data = doc.data()!;
+      final user = UserModel.fromJson({...data, 'uid': uid});
+
+      await _databaseHelper.insertUser(user);
+      await CustomCacheManager.saveJsonCache('user_$uid', user.toJson());
+
+      return user;
+    } catch (e) {
+      debugPrint('❌ getUserById error: $e');
+      return null;
     }
   }
 
@@ -159,8 +169,7 @@ class UserService {
       );
 
       await _databaseHelper.updateUser(_currentUser!);
-      await CustomCacheManager.saveJsonCache(
-          'user_${_currentUser!.uid}', _currentUser!.toJson());
+      await CustomCacheManager.saveJsonCache('user_${_currentUser!.uid}', _currentUser!.toJson());
       debugPrint('✅ Profile updated');
       return true;
     } catch (e) {
@@ -170,7 +179,7 @@ class UserService {
   }
 
   // ============================================================
-  // 🗓️ Schedule soft deletion (30-day grace)
+  // 🗓️ Schedule soft deletion
   // ============================================================
   Future<void> scheduleUserDeletion() async {
     if (_currentUser == null) return;
@@ -192,14 +201,16 @@ class UserService {
       );
 
       await _databaseHelper.updateUser(_currentUser!);
-      await CustomCacheManager.saveJsonCache(
-          'user_$uid', _currentUser!.toJson());
+      await CustomCacheManager.saveJsonCache('user_$uid', _currentUser!.toJson());
 
       debugPrint('🕒 Account scheduled for deletion on: $scheduled');
     } catch (e) {
       debugPrint('❌ scheduleUserDeletion: $e');
     }
   }
+
+
+
 
   // ============================================================
   // 🌍 Save language
@@ -213,8 +224,7 @@ class UserService {
       });
       _currentUser = _currentUser!.copyWith(language: language);
       await _databaseHelper.updateUser(_currentUser!);
-      await CustomCacheManager.saveJsonCache(
-          'user_${_currentUser!.uid}', _currentUser!.toJson());
+      await CustomCacheManager.saveJsonCache('user_${_currentUser!.uid}', _currentUser!.toJson());
       return true;
     } catch (e) {
       debugPrint('❌ saveLanguage: $e');
@@ -232,7 +242,11 @@ class UserService {
     required String pinCode,
   }) async =>
       updateUserProfile(
-          address: address, city: city, state: state, pinCode: pinCode);
+        address: address,
+        city: city,
+        state: state,
+        pinCode: pinCode,
+      );
 
   // ============================================================
   // 🧩 Profile status helpers
@@ -265,8 +279,7 @@ class UserService {
       final refreshed = UserModel.fromJson({...data, 'uid': user.uid});
       _currentUser = refreshed;
       await _databaseHelper.insertUser(refreshed);
-      await CustomCacheManager.saveJsonCache(
-          'user_${user.uid}', refreshed.toJson());
+      await CustomCacheManager.saveJsonCache('user_${user.uid}', refreshed.toJson());
       debugPrint('🔁 User refreshed');
       return true;
     } catch (e) {
@@ -276,7 +289,7 @@ class UserService {
   }
 
   // ============================================================
-  // 🚪 Logout / Clear (cleaned for v4.3)
+  // 🚪 Logout / Clear
   // ============================================================
   Future<void> logout() async {
     _currentUser = null;
@@ -303,9 +316,11 @@ class UserService {
   // ============================================================
   bool get isLoggedIn =>
       _auth.currentUser != null && _currentUser != null;
+
   bool get isProfileComplete =>
       _getProfileStatus(_currentUser ?? UserModel(uid: '')) ==
           UserProfileStatus.complete;
+
   double get profileCompletionPercentage =>
       _currentUser?.profileCompletionPercentage ?? 0.0;
 }

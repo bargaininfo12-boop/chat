@@ -1,5 +1,5 @@
 // v1.0-ws_client.dart · 2025-10-25T15:45 IST
-// lib/chat/Services/ws_client.dart
+// lib/chat/services/ws_client.dart
 //
 // WsClient: lightweight WebSocket wrapper for app realtime messaging.
 // - Accepts Uri endpoint (type-safe)
@@ -45,7 +45,6 @@ class WsClient {
 
   bool get isConnected => _socket != null && _socket!.readyState == WebSocket.open;
 
-  /// Connect (or reconnect) to the websocket.
   Future<void> connect() async {
     _closing = false;
     await _attemptConnect();
@@ -61,11 +60,9 @@ class WsClient {
       final token = (tokenProvider != null) ? (await tokenProvider!()) : '';
       final connUri = _withAuthToken(endpoint, token);
 
-      // Create connection
       final ws = await WebSocket.connect(
         connUri.toString(),
         headers: {
-          // optional headers can go here (some servers require custom headers)
           'User-Agent': 'BargainApp/1.0',
         },
       ).timeout(connectTimeout);
@@ -75,7 +72,6 @@ class WsClient {
       _connController.add(true);
     } catch (e) {
       _connController.add(false);
-      // schedule reconnect with backoff
       _reconnectAttempts++;
       if (_reconnectAttempts <= maxReconnectAttempts && !_closing) {
         final delay = _computeBackoff(_reconnectAttempts);
@@ -94,7 +90,6 @@ class WsClient {
   }
 
   Duration _computeBackoff(int attempt) {
-    // exponential backoff with jitter
     final int ms = (initialReconnectDelay.inMilliseconds * (1 << (attempt - 1)));
     final jitter = (ms * 0.25).toInt();
     final rand = DateTime.now().millisecondsSinceEpoch % (jitter + 1);
@@ -104,13 +99,10 @@ class WsClient {
   }
 
   void _attachSocket(WebSocket ws) {
-    // clean previous
     _detachSocket();
-
     _socket = ws;
     _socket!.pingInterval = pingInterval;
 
-    // incoming
     _socket!.listen((dynamic raw) {
       _handleRawMessage(raw);
     }, onError: (err) {
@@ -122,7 +114,6 @@ class WsClient {
       _scheduleReconnect();
     }, cancelOnError: true);
 
-    // start ping timer (additional to pingInterval; some platforms need manual ping)
     _startPingTimer();
   }
 
@@ -145,7 +136,6 @@ class WsClient {
     _pingTimer = Timer.periodic(pingInterval, (_) {
       try {
         if (_socket != null && _socket!.readyState == WebSocket.open) {
-          // send a lightweight ping envelope (server may ignore)
           _socket!.add(jsonEncode({'event': 'ping', 'data': {}}));
         }
       } catch (_) {}
@@ -163,11 +153,9 @@ class WsClient {
           envelope['data'] = parsed['data'] ?? parsed['payload'] ?? {};
           _eventsController.add(envelope);
         } else {
-          // non-map JSON -> wrap
           _eventsController.add({'event': 'message.raw', 'data': {'value': parsed}});
         }
       } else if (raw is List<int>) {
-        // binary frame — try to decode utf8 then JSON
         final s = utf8.decode(raw);
         final parsed = jsonDecode(s);
         if (parsed is Map<String, dynamic>) {
@@ -179,7 +167,6 @@ class WsClient {
         _eventsController.add({'event': 'message.unknown', 'data': {'value': raw}});
       }
     } catch (e) {
-      // best-effort: forward raw string as a fallback
       try {
         _eventsController.add({'event': 'message.parse_error', 'data': {'raw': raw.toString(), 'error': e.toString()}});
       } catch (_) {}
@@ -190,7 +177,6 @@ class WsClient {
     if (_closing) return;
     _reconnectAttempts++;
     if (_reconnectAttempts > maxReconnectAttempts) {
-      // give up — emit disconnected and stop trying
       _connController.add(false);
       return;
     }
@@ -200,9 +186,6 @@ class WsClient {
     });
   }
 
-  /// Send an event envelope to server: { event: 'name', data: {...} }
-  ///
-  /// If socket not ready, tries to connect first.
   Future<void> sendEvent(String event, Map<String, dynamic> data) async {
     final envelope = jsonEncode({'event': event, 'data': data});
     try {
@@ -219,7 +202,6 @@ class WsClient {
     }
   }
 
-  /// Graceful disconnect (prevents automatic reconnect)
   Future<void> disconnect() async {
     _closing = true;
     _reconnectAttempts = 0;
@@ -234,7 +216,6 @@ class WsClient {
     _detachSocket();
   }
 
-  /// Force dispose - closes controllers & socket
   Future<void> dispose() async {
     _closing = true;
     try {

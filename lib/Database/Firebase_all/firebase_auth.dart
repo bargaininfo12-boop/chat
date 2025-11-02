@@ -5,12 +5,12 @@ import 'dart:async';
 import 'package:bargain/Database/database_helper.dart';
 import 'package:bargain/Services/user_service.dart';
 import 'package:bargain/chat/services/userpresence.dart';
-import 'package:bargain/chat/repository/message_repository.dart';
+import 'package:bargain/chat/Core%20Services/message_repository.dart';
 import 'package:bargain/chat/utils/custom_cache_manager.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:bargain/chat/repository/message_repository.dart';
+import 'package:bargain/chat/Core%20Services/message_repository.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
